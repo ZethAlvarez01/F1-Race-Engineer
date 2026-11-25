@@ -1,17 +1,19 @@
 from pathlib import Path
 import json
 import requests
+from transform import load_laps, summarize_laps, filter_valid_laps,save_silver_laps
+from database import get_connection, upsert_laps_silver
+import pandas as pd
+import psycopg
 
-BASE_URL = "https://api.openf1.org/v1/laps"
+LAPS_URL = "https://api.openf1.org/v1/laps"
+RACE_CONTROL_URL = "https://api.openf1.org/v1/race_control"
 
 SESSION_KEY = 9165
 
 DRIVERS = {
     55: "Carlos Sainz",
-    4: "Lando Norris",
-    22: "Yuki Tsunoda",
-    31: "Esteban Ocon",
-    1: "Zeth_Test"
+    4: "Lando Norris"
 }
 
 RAW_DIR = Path(__file__).resolve().parents[1] / "data" / "bronze"
@@ -23,39 +25,81 @@ def extract_laps(driver_number: int,session_key: str|int = "latest") -> list[dic
         "driver_number":driver_number
         }
 
-    datos = requests.get(BASE_URL,params=params,timeout=60).json()
+    response = requests.get(LAPS_URL,params=params,timeout=60)
 
-    return datos
+    response.raise_for_status()
 
-def load_laps(driver_number: int) -> list[dict]:
+    return response.json()
 
-    with open(RAW_DIR / f"laps_{driver_number}.json","r",encoding="utf-8") as f:
-        data = json.load(f)
+def extract_race_control(session_key: str|int = "latest") -> list[dict]:
+    params = {
+            "session_key": session_key
+            }
 
-    return data
+    response = requests.get(RACE_CONTROL_URL,params=params,timeout=60)
+
+    response.raise_for_status()
+
+    return response.json()
+
+
+def save_laps(data_laps: list[dict],driver: int) -> None:
+    path = RAW_DIR / f"laps_{driver}.json"
+    try: 
+        with open(path,"w",encoding="utf-8") as f:
+                    json.dump(data_laps,f,indent=2,ensure_ascii=False)
+    except OSError as e:
+        print(f"Error al manipular el archivo {path.name}: {e}")
+        raise 
+
+def save_race_control(data_race_control: list[dict]) -> None:
+    path = RAW_DIR / f"race_control_{SESSION_KEY}.json"
+    try: 
+        with open(path,"w",encoding="utf-8") as f:
+                    json.dump(data_race_control,f,indent=2,ensure_ascii=False)
+    except OSError as e:
+        print(f"Error al manipular el archivo {path.name}: {e}")
+        raise 
+
 
 if __name__ == "__main__":
 
     for driver in DRIVERS.keys():
-        data = extract_laps(driver,SESSION_KEY)
+        response = extract_laps(driver,SESSION_KEY)
 
-        if driver != 1: # 1 -> Zeth Test
+        save_laps(response,driver)
 
-            with open(RAW_DIR / f"laps_{driver}.json","w",encoding="utf-8") as f:
-                json.dump(data,f,indent=2,ensure_ascii=False)
+        data = load_laps(driver,"bronze")
+        
+        #print("bronze ", len(data))
 
-    print("Data guardada")
+        summarize = summarize_laps(data,DRIVERS[driver])
 
+        valid_laps = filter_valid_laps(data)
 
-    for driver in DRIVERS.keys():
-        datos = load_laps(driver)
+        save_silver_laps(driver,valid_laps)
 
-        print("Corredor: ", DRIVERS[driver])
-        print("Vueltas registradas: ", len(datos))
-        print("Vueltas vacias: ", len([lap for lap in datos if lap["lap_duration"] is None]))
-        print("Vueltas validas: ", len([lap for lap in datos if isinstance(lap["lap_duration"],(int,float))
-                                        and lap["lap_duration"] > 0]))
+        data = load_laps(driver,"silver")
 
-        print("")
+        #print("silver ", len(data))
+        
+        upsert_laps_silver(data)
+
+    print("----------------")
+
+    data_race_control = extract_race_control(SESSION_KEY)
+
+    save_race_control(data_race_control)
+
+    banderas = [event for event in data_race_control if event["category"] == 'Flag']
+
+    virtual_safety_car = [event for event in data_race_control if event["category"] == 'SafetyCar' and "VIRTUAL" in event["message"]]
+
+    safety_car = [event for event in data_race_control if event["category"] == 'SafetyCar' and "VIRTUAL" not in event["message"]]
+
+    print("Banderas: ",len(banderas))
+    print("Virtulal Safety Car: ",len(virtual_safety_car))
+    print("Safety Car: ",len(safety_car))
+
 
 
