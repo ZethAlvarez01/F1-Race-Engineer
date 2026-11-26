@@ -2,12 +2,13 @@ from pathlib import Path
 import json
 import requests
 from transform import load_laps, summarize_laps, filter_valid_laps,save_silver_laps
-from database import get_connection, upsert_laps_silver
+from database import get_connection, upsert_laps_silver,upsert_race_control_silver,upsert_pit_silver
 import pandas as pd
 import psycopg
 
 LAPS_URL = "https://api.openf1.org/v1/laps"
 RACE_CONTROL_URL = "https://api.openf1.org/v1/race_control"
+PIT_URL = "https://api.openf1.org/v1/pit"
 
 SESSION_KEY = 9165
 
@@ -42,6 +43,17 @@ def extract_race_control(session_key: str|int = "latest") -> list[dict]:
 
     return response.json()
 
+def extract_pit(session_key: str|int = "latest") -> list[dict]:
+    params = {
+            "session_key": session_key
+            }
+
+    response = requests.get(PIT_URL,params=params,timeout=60)
+
+    response.raise_for_status()
+
+    return response.json()
+
 
 def save_laps(data_laps: list[dict],driver: int) -> None:
     path = RAW_DIR / f"laps_{driver}.json"
@@ -61,6 +73,14 @@ def save_race_control(data_race_control: list[dict]) -> None:
         print(f"Error al manipular el archivo {path.name}: {e}")
         raise 
 
+def save_pit(data_pit: list[dict]) -> None:
+    path = RAW_DIR / f"pit_{SESSION_KEY}.json"
+    try: 
+        with open(path,"w",encoding="utf-8") as f:
+                    json.dump(data_pit,f,indent=2,ensure_ascii=False)
+    except OSError as e:
+        print(f"Error al manipular el archivo {path.name}: {e}")
+        raise 
 
 if __name__ == "__main__":
 
@@ -97,9 +117,15 @@ if __name__ == "__main__":
 
     safety_car = [event for event in data_race_control if event["category"] == 'SafetyCar' and "VIRTUAL" not in event["message"]]
 
-    print("Banderas: ",len(banderas))
-    print("Virtulal Safety Car: ",len(virtual_safety_car))
-    print("Safety Car: ",len(safety_car))
 
+    upsert_race_control_silver(data_race_control)
+
+    print("----------------")
+
+    data_pit = extract_pit(SESSION_KEY)
+
+    save_pit(data_pit)
+
+    upsert_pit_silver(data_pit)
 
 
