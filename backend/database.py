@@ -2,6 +2,7 @@ import psycopg
 import os
 from pathlib import Path
 from dotenv import load_dotenv
+from psycopg.rows import dict_row
 
 
 ENV_FILE = Path(__file__).resolve().parent.parent / ".env"
@@ -74,3 +75,29 @@ def upsert_pit_silver(data_pit: list[dict]) -> None:
     with get_connection() as conn:
         with conn.cursor() as cur:
             cur.executemany(sql_upsert_pit, values)
+
+def run_gold_metrics(session_key: int) -> None:
+    if session_key != 9165:
+        raise ValueError("El cálculo Gold tiene rangos de Safety Car definidos solo para la sesión 9165")
+
+    ENV_GOLD = Path(__file__).resolve().parent.parent / "sql"
+
+    with open(ENV_GOLD / "driver_race_metric.sql","r",encoding="utf-8") as f:
+        query = f.read()
+
+    with get_connection() as conn:
+        conn.execute(query)
+
+
+def get_gold_metrics(session_key: int) -> list[dict]:
+    query = """
+        SELECT session_key, driver_number, valid_laps, avg_lap_duration, fastest_lap
+        FROM public.driver_race_metric
+        WHERE session_key = %s
+        ORDER BY driver_number
+    """
+
+    with get_connection() as conn:
+        with conn.cursor(row_factory=dict_row) as cur:
+            cur.execute(query, (session_key,))
+            return cur.fetchall()

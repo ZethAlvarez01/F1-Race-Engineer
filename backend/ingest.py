@@ -3,7 +3,6 @@ import json
 import requests
 from transform import load_laps, summarize_laps, filter_valid_laps,save_silver_laps
 from database import get_connection, upsert_laps_silver,upsert_race_control_silver,upsert_pit_silver
-import pandas as pd
 import psycopg
 
 LAPS_URL = "https://api.openf1.org/v1/laps"

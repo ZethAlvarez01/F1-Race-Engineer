@@ -1,0 +1,13 @@
+# API y PostgreSQL
+fastapi==0.165.0
+uvicorn==0.54.0
+psycopg[binary]==3.3.9
+pydantic==2.14.4
+python-dotenv==1.2.4
+
+# Ingesta de OpenF1
+requests==2.34.2
+
+# Pruebas
+pytest==9.2.0
+httpx==0.29.0
